@@ -36,7 +36,7 @@ and support for the following SDR devices and device libraries:
 [10]: http://www.rfspace.com/RFSPACE/Home.html
 [11]: https://www.rtl-sdr.com/buy-rtl-sdr-dvb-t-dongles/
 
-The complete list of packages can be found [here](https://github.com/ryanvolz/radioconda/blob/master/radioconda.yaml). You can [**suggest additional software to include**](https://github.com/ryanvolz/radioconda/issues) by filing an [issue](https://github.com/ryanvolz/radioconda/issues). If you've built additional software from source on top of radioconda, [**document your results**](https://github.com/ryanvolz/radioconda/issues) in an [issue](https://github.com/ryanvolz/radioconda/issues) to help others (and help me in packaging it!).
+The complete list of packages can be found [here](https://github.com/radioconda/radioconda-installer/blob/master/radioconda.yaml). You can [**suggest additional software to include**](https://github.com/radioconda/radioconda-installer/issues) by filing an [issue](https://github.com/radioconda/radioconda-installer/issues). If you've built additional software from source on top of radioconda, [**document your results**](https://github.com/radioconda/radioconda-installer/issues) in an [issue](https://github.com/radioconda/radioconda-installer/issues) to help others (and help me in packaging it!).
 
 Once installed, you will have a fully functional conda distribution/environment, meaning that you can use the `conda` or `mamba` commands to install additional packages (if available through [conda-forge](https://conda-forge.org/feedstock-outputs)) or upgrade to the latest versions. Think of radioconda as an alternative to [Anaconda](https://www.anaconda.com/products/individual) or [Miniforge](https://github.com/conda-forge/miniforge), but specialized for software radio.
 
@@ -44,15 +44,15 @@ Once installed, you will have a fully functional conda distribution/environment,
 
 ## Download
 
-Radioconda installers are available here: https://github.com/ryanvolz/radioconda/releases.
+Radioconda installers are available here: https://github.com/radioconda/radioconda-installer/releases.
 
 | OS      | Architecture          | Installer Type | Download                                                                                                             |
 | ------- | --------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------- |
 | Linux   | x86_64 (amd64)        | Command-line   | [radioconda-Linux-x86_64.sh](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-Linux-x86_64.sh)       |
-| Linux   | aarch64 (arm64)       | Command-line   | [radioconda-Linux-aarch64.sh](https://glare-sable.vercel.app/radioconda/radioconda-installerradioconda-.*-Linux-aarch64.sh)     |
+| Linux   | aarch64 (arm64)       | Command-line   | [radioconda-Linux-aarch64.sh](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-Linux-aarch64.sh)     |
 | Linux   | ppc64le (POWER8/9)    | Command-line   | [radioconda-Linux-ppc64le.sh](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-Linux-ppc64le.sh)     |
 | macOS   | x86_64 (Intel)        | Command-line   | [radioconda-MacOSX-x86_64.sh](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-MacOSX-x86_64.sh)     |
-| macOS   | x86_64 (Intel)        | Graphical      | [radioconda-MacOSX-x86_64.pkg](https://glare-sable.vercel.app/radioconda/radioconda-installerradioconda-.*-MacOSX-x86_64.pkg)   |
+| macOS   | x86_64 (Intel)        | Graphical      | [radioconda-MacOSX-x86_64.pkg](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-MacOSX-x86_64.pkg)   |
 | macOS   | arm64 (Apple Silicon) | Command-line   | [radioconda-MacOSX-arm64.sh](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-MacOSX-arm64.sh)       |
 | macOS   | arm64 (Apple Silicon) | Graphical      | [radioconda-MacOSX-arm64.pkg](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-MacOSX-arm64.pkg)     |
 | Windows | x86_64 (amd64)        | Graphical      | [radioconda-Windows-x86_64.exe](https://glare-sable.vercel.app/radioconda/radioconda-installer/radioconda-.*-Windows-x86_64.exe) |
@@ -119,11 +119,11 @@ To install the latest release in particular, run
 
 (on Windows):
 
-    mamba install --file https://github.com/ryanvolz/radioconda/releases/latest/download/radioconda-win-64.lock
+    mamba install --file https://github.com/radioconda/radioconda-installer/releases/latest/download/radioconda-win-64.lock
 
 (on Linux/macOS):
 
-    mamba install --file https://github.com/ryanvolz/radioconda/releases/latest/download/radioconda-$(conda info | sed -n -e 's/^.*platform : //p').lock
+    mamba install --file https://github.com/radioconda/radioconda-installer/releases/latest/download/radioconda-$(conda info | sed -n -e 's/^.*platform : //p').lock
 
 ### Install a particular release
 
@@ -131,11 +131,11 @@ To install a particular release version, substitute the desired version number a
 
 (on Windows):
 
-    mamba install --file https://github.com/ryanvolz/radioconda/releases/download/20NN.NN.NN/radioconda-win-64.lock
+    mamba install --file https://github.com/radioconda/radioconda-installer/releases/download/20NN.NN.NN/radioconda-win-64.lock
 
 (on Linux/macOS):
 
-    mamba install --file https://github.com/ryanvolz/radioconda/releases/download/20NN.NN.NN/radioconda-$(conda info | sed -n -e 's/^.*platform : //p').lock
+    mamba install --file https://github.com/radioconda/radioconda-installer/releases/download/20NN.NN.NN/radioconda-$(conda info | sed -n -e 's/^.*platform : //p').lock
 
 ### Install from radioconda metapackage
 
@@ -322,11 +322,11 @@ Many USB devices use libusb and need a WinUSB driver installed on Windows. Follo
 
 ## Developers
 
-![Build radioconda](https://github.com/ryanvolz/radioconda/actions/workflows/build_radioconda.yml/badge.svg)
+![Build radioconda](https://github.com/radioconda/radioconda-installer/actions/workflows/build_radioconda.yml/badge.svg)
 
 ### Usage
 
-Each installer package is built from a specification directory in [installer_specs](https://github.com/ryanvolz/radioconda/tree/master/installer_specs) using [conda constructor](https://github.com/conda/constructor). An installer can be built manually using the [build_installer.py](https://github.com/ryanvolz/radioconda/blob/master/build_installer.py) script. The specification directories set the exact versions of the included packages so that `constructor` will produce a predictable result that can be tracked by git for each release. In turn, the specification directories are created/updated by _re-rendering_ the radioconda [environment specification file](https://github.com/ryanvolz/radioconda/blob/master/radioconda.yaml) using the [rerender.py](https://github.com/ryanvolz/radioconda/blob/master/rerender.py) script.
+Each installer package is built from a specification directory in [installer_specs](https://github.com/radioconda/radioconda-installer/tree/master/installer_specs) using [conda constructor](https://github.com/conda/constructor). An installer can be built manually using the [build_installer.py](https://github.com/radioconda/radioconda-installer/blob/master/build_installer.py) script. The specification directories set the exact versions of the included packages so that `constructor` will produce a predictable result that can be tracked by git for each release. In turn, the specification directories are created/updated by _re-rendering_ the radioconda [environment specification file](https://github.com/radioconda/radioconda-installer/blob/master/radioconda.yaml) using the [rerender.py](https://github.com/radioconda/radioconda-installer/blob/master/rerender.py) script.
 
 So, the procedure to create a new installer package is:
 
