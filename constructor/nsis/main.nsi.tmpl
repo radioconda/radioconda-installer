@@ -560,7 +560,7 @@ Function .onInit
 {%- if TEMP_EXTRA_FILES | length != 0 %}
     SetOutPath $PLUGINSDIR
 {%- for file in TEMP_EXTRA_FILES %}
-    File {{ file }}
+    File "{{ file }}"
 {%- endfor %}
 {%- endif %}
     !insertmacro ParseCommandLineArgs
@@ -702,8 +702,10 @@ Function .onInit
 
     # Initialize the default settings for the anaconda custom options
     Call mui_AnaCustomOptions_InitDefaults
-    # Override custom options with explicitly given values from contruct.yaml.
-    # If initialize_by_default (register_python_default) is None, do nothing.
+    # Override custom options with explicitly given values from construct.yaml.
+    # If initialize_by_default / register_python_default
+    # are None, do nothing. Note that these variables exist even when the construct.yaml
+    # settings are disabled, and the installer will respect them later!
 {%- if initialize_conda %}
     {%- if initialize_by_default %}
     ${If} $InstMode == ${JUST_ME}
@@ -1266,9 +1268,9 @@ Section "Install"
     File {{ pre_uninstall }}
 
 {%- for path, files in EXTRA_FILES | items %}
-    SetOutPath {{ path }}
+    SetOutPath "{{ path }}"
 {%- for file in files %}
-    File {{ file }}
+    File "{{ file }}"
 {%- endfor %}
 {%- endfor %}
 
@@ -1313,6 +1315,11 @@ Section "Install"
     ${Else}
         System::Call 'kernel32::SetEnvironmentVariable(t,t)i("INSTALLER_UNATTENDED", "0").r0'
     ${EndIf}
+    # Installers should ignore pre-existing configuration files.
+    # Note: We want to _unset_ these environment variables, not set them to `0`.
+    # This requires passing `0` as an integer, hence the `i` in front.
+    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDARC", i 0).r0'
+    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("MAMBARC", i 0).r0'
 
     ${If} '{{ VIRTUAL_SPECS }}' != ''
     # We need to specify CONDA_SOLVER=classic for conda-standalone
@@ -1435,13 +1442,20 @@ Section "Install"
         call AbortRetryNSExecWait
     ${EndIf}
 
+{% if initialize_conda %}
     ${If} $Ana_AddToPath_State = ${BST_CHECKED}
-        ${Print} "Adding to PATH..."
+{%-     if initialize_conda == 'condabin' %}
+        ${Print} "Adding $INSTDIR\condabin to PATH..."
+        push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" addcondabinpath'
+{%-     else %}
+        ${Print} "Adding $INSTDIR\Scripts & Library\bin to PATH..."
         push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" addpath ${PYVERSION} ${NAME} ${VERSION} ${ARCH}'
-        push 'Failed to add {{ NAME }} to the system PATH'
+{%-     endif %}
+        push 'Failed to add {{ NAME }} to PATH'
         push 'WithLog'
         call AbortRetryNSExecWait
     ${EndIf}
+{%- endif %}
 
     # Create registry entries saying this is the system Python
     # (for this version)
@@ -1508,6 +1522,22 @@ Section "Install"
     ${If} ${UAC_IsAdmin}
         ${Print} "Setting installation directory permissions..."
         AccessControl::DisableFileInheritance "$INSTDIR"
+        # Enable inheritance on all files inside $INSTDIR.
+        # Use icacls because it is much faster than custom NSIS solutions.
+        # We continue on error because icacls fails on broken links.
+        ReadEnvStr $0 SystemRoot
+        ReadEnvStr $1 windir
+        ${If} ${FileExists} "$0"
+            push '"$0\System32\icacls.exe" "$INSTDIR\*" /inheritance:e /T /C /Q'
+        ${ElseIf} ${FileExists} "$1"
+            push '"$1\System32\icacls.exe" "$INSTDIR\*" /inheritance:e /T /C /Q'
+        ${Else}
+            # Cross our fingers icacls is in PATH
+            push 'icacls.exe "$INSTDIR\*" /inheritance:e /T /C /Q'
+        ${EndIf}
+        push 'Failed to enable inheritance for all files in the installation directory.'
+        push 'NoLog'
+        call AbortRetryNSExecWait
         AccessControl::RevokeOnFile "$INSTDIR" "(AU)" "GenericWrite"
         AccessControl::RevokeOnFile "$INSTDIR" "(DU)" "GenericWrite"
         AccessControl::RevokeOnFile "$INSTDIR" "(BU)" "GenericWrite"

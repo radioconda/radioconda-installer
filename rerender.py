@@ -346,6 +346,7 @@ def render(
         micromamba=True,
         kinds=("lock",),
         lockfile_path=builder_lockfile_path,
+        mapping_url=conda_lock.lookup.DEFAULT_MAPPING_URL,
     )
 
     # read environment files and create the lock file
@@ -357,6 +358,7 @@ def render(
         micromamba=True,
         kinds=("lock",),
         lockfile_path=lockfile_path,
+        mapping_url=conda_lock.lookup.DEFAULT_MAPPING_URL,
     )
 
     # render main environment specs into explicit .lock files for reproducibility
