@@ -45,6 +45,7 @@ dependencies:
   - gnuradio-radar
   - gnuradio-rds
   - gnuradio-satellites
+  - gnuradio-tempest
   - gqrx
   - hackrf
   - hamlib-all
