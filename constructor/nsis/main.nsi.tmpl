@@ -59,6 +59,8 @@ var /global StdOutHandleSet
 !include "x64.nsh"
 
 !include "FileFunc.nsh"
+!include "StrFunc.nsh"
+${Using:StrFunc} StrStr
 !insertmacro GetParameters
 !insertmacro GetOptions
 
@@ -71,28 +73,36 @@ var /global StdOutHandleSet
 !include "StandaloneUninstallerOptions.nsh"
 {%- endif %}
 
-!define NAME {{ installer_name }}
-!define VERSION {{ installer_version }}
-!define COMPANY {{ company }}
-!define ARCH {{ arch }}
-!define PLATFORM {{ installer_platform }}
-!define CONSTRUCTOR_VERSION {{ constructor_version }}
-!define PY_VER {{ pyver_components[:2] | join(".") }}
-!define PYVERSION_JUSTDIGITS {{ pyver_components | join("") }}
-!define PYVERSION {{ pyver_components | join(".") }}
-!define PYVERSION_MAJOR {{ pyver_components[0] }}
-!define DEFAULT_PREFIX {{ default_prefix }}
-!define DEFAULT_PREFIX_DOMAIN_USER {{ default_prefix_domain_user }}
-!define DEFAULT_PREFIX_ALL_USERS {{ default_prefix_all_users }}
-!define PRE_INSTALL_DESC {{ pre_install_desc }}
-!define POST_INSTALL_DESC {{ post_install_desc }}
-!define ENABLE_SHORTCUTS {{ enable_shortcuts }}
-!define SHOW_REGISTER_PYTHON {{ show_register_python }}
-!define SHOW_ADD_TO_PATH {{ show_add_to_path }}
-!define PRODUCT_NAME "${NAME} ${VERSION} (${ARCH})"
-!define UNINSTALL_NAME "{{ UNINSTALL_NAME }}"
-!define UNINSTREG "SOFTWARE\Microsoft\Windows\CurrentVersion\
-                   \Uninstall\${UNINSTALL_NAME}"
+!define NAME                          {{ installer_name }}
+!define VERSION                       {{ installer_version }}
+!define COMPANY                       {{ company }}
+!define ARCH                          {{ arch }}
+!define PLATFORM                      {{ installer_platform }}
+!define CONSTRUCTOR_VERSION           {{ constructor_version }}
+{%- if has_python %}
+!define PY_VER                        {{ pyver_components[:2] | join(".") }}
+!define PYVERSION_JUSTDIGITS          {{ pyver_components | join("") }}
+!define PYVERSION                     {{ pyver_components | join(".") }}
+!define PYVERSION_MAJOR               {{ pyver_components[0] }}
+{% endif %}
+!define DEFAULT_PREFIX                {{ default_prefix }}
+!define DEFAULT_PREFIX_DOMAIN_USER    {{ default_prefix_domain_user }}
+!define DEFAULT_PREFIX_ALL_USERS      {{ default_prefix_all_users }}
+!define PRE_INSTALL_DESC              {{ pre_install_desc }}
+!define POST_INSTALL_DESC             {{ post_install_desc }}
+!define ENABLE_SHORTCUTS              {{ enable_shortcuts }}
+!define REGISTER_PYTHON_OPTION        {{ '1' if register_python and has_python else '0' }}
+!define REGISTER_PYTHON_DEFAULT_VALUE {{ '1' if register_python_default else '0' }}
+!define INIT_CONDA_OPTION             {{ '1' if initialize_conda else '0' }}
+!define INIT_CONDA_MODE               "{{ 'condabin' if initialize_conda == 'condabin' else 'classic' }}"
+!define INIT_CONDA_DEFAULT_VALUE      {{ '1' if initialize_by_default else '0' }}
+!define PRODUCT_NAME                  "${NAME} ${VERSION} (${ARCH})"
+!define UNINSTALL_NAME                "{{ UNINSTALL_NAME }}"
+!define UNINSTREG                     "SOFTWARE\Microsoft\Windows\CurrentVersion\
+                                      \Uninstall\${UNINSTALL_NAME}"
+
+var /global INIT_CONDA
+var /global REG_PY
 
 var /global INSTDIR_JUSTME
 var /global INSTALLER_VERSION
@@ -108,7 +118,9 @@ var /global ARGV_Help
 var /global ARGV_InstallationType
 var /global ARGV_AddToPath
 var /global ARGV_KeepPkgCache
+{%- if has_python %}
 var /global ARGV_RegisterPython
+{%- endif %}
 var /global ARGV_NoRegistry
 var /global ARGV_NoScripts
 var /global ARGV_NoShortcuts
@@ -131,6 +143,26 @@ var /global InstModePage_RadioButton_AllUsers
 var /global InstMode # 0 = Just Me, 1 = All Users.
 !define JUST_ME 0
 !define ALL_USERS 1
+
+var /global CMD_EXE
+var /global ICACLS_EXE
+
+!macro FindWindowsBinaries
+    # Find cmd.exe
+    ReadEnvStr $R0 SystemRoot
+    ReadEnvStr $R1 windir
+    ${If} ${FileExists} "$R0"
+        StrCpy $CMD_EXE "$R0\System32\cmd.exe"
+        StrCpy $ICACLS_EXE "$R0\System32\icacls.exe"
+    ${ElseIf} ${FileExists} "$R1"
+        StrCpy $CMD_EXE "$R1\System32\cmd.exe"
+        StrCpy $ICACLS_EXE "$R1\System32\icacls.exe"
+    ${Else}
+        # Cross our fingers binaries are in PATH
+        StrCpy $CMD_EXE "cmd.exe"
+        StrCpy $ICACLS_EXE "icacls.exe"
+    ${EndIf}
+!macroend
 
 # Include this one after our defines
 !include "OptionsDialog.nsh"
@@ -188,7 +220,7 @@ Page Custom InstModePage_Create InstModePage_Leave
 !define MUI_PAGE_CUSTOMFUNCTION_LEAVE OnDirectoryLeave
 !insertmacro MUI_PAGE_DIRECTORY
 # Custom options now differ depending on installation mode.
-#Page Custom mui_AnaCustomOptions_Show
+Page Custom mui_AnaCustomOptions_Show
 !insertmacro MUI_PAGE_INSTFILES
 
 {%- for page in POST_INSTALL_PAGES %}
@@ -279,10 +311,14 @@ FunctionEnd
             OPTIONS$\n\
             -------$\n\
             $\n\
-                /InstallationType=AllUsers [default: JustMe]$\n\
+                /InstallationType=[AllUsers|JustMe] [default: JustMe]$\n\
+{%- if initialize_conda %}
                 /AddToPath=[0|1] [default: 0]$\n\
+{%- endif %}
                 /KeepPkgCache=[0|1] [default: {{ 1 if keep_pkgs else 0 }}]$\n\
-                /RegisterPython=[0|1] [default: AllUsers: 1, JustMe: 0]$\n\
+{%- if has_python and register_python %}
+                /RegisterPython=[0|1] [default: 0]$\n\
+{%- endif %}
                 /NoRegistry=[0|1] [default: AllUsers: 0, JustMe: 0]$\n\
                 /NoScripts=[0|1] [default: 0]$\n\
                 /NoShortcuts=[0|1] [default: 0]$\n\
@@ -301,9 +337,16 @@ FunctionEnd
                 Install for all users, but don't add to PATH env var:$\n\
                     > $EXEFILE /InstallationType=AllUsers$\n\
                 $\n\
-                Install for just me, add to PATH and register as system Python:$\n\
-                    > $EXEFILE /RegisterPython=1 /AddToPath=1$\n\
+{%- if has_python and register_python %}
+                Install for just me, and register as system Python:$\n\
+                    > $EXEFILE /RegisterPython=1$\n\
                 $\n\
+{%- endif %}
+{%- if initialize_conda %}
+                Install for just me and add to PATH:$\n\
+                    > $EXEFILE /AddToPath=1$\n\
+                $\n\
+{%- endif %}
                 Install for just me, with no registry modification (for CI):$\n\
                     > $EXEFILE /NoRegistry=1$\n\
                 $\n\
@@ -326,15 +369,46 @@ FunctionEnd
         ${EndIf}
     ${EndIf}
 
-    ClearErrors
-    ${GetOptions} $ARGV "/RegisterPython=" $ARGV_RegisterPython
-    ${IfNot} ${Errors}
-        ${If} $ARGV_RegisterPython = "1"
-            StrCpy $Ana_RegisterSystemPython_State ${BST_CHECKED}
-        ${ElseIf} $ARGV_RegisterPython = "0"
-            StrCpy $Ana_RegisterSystemPython_State ${BST_UNCHECKED}
+
+    !if ${REGISTER_PYTHON_OPTION} == 1
+        ClearErrors
+        ${GetOptions} $ARGV "/RegisterPython=" $ARGV_RegisterPython
+        ${IfNot} ${Errors}
+            ${If} $ARGV_RegisterPython == "1"
+                StrCpy $REG_PY 1
+            ${ElseIf} $ARGV_RegisterPython == "0"
+                StrCpy $REG_PY 0
+            ${EndIf}
+        ${Else}
+            # If we have Errors, the option is not explicitly set by the user
+            StrCpy $REG_PY 0
         ${EndIf}
-    ${EndIf}
+
+    !endif
+
+    !if ${INIT_CONDA_OPTION} == 1
+        ClearErrors
+        ${GetOptions} $ARGV "/AddToPath=" $ARGV_AddToPath
+        ${IfNot} ${Errors}
+            ${If} $ARGV_AddToPath = "1"
+                # To address CVE-2022-26526.
+                # In AllUsers install mode, do not allow AddToPath as an option.
+                ${If} $InstMode == ${ALL_USERS}
+                    MessageBox MB_OK|MB_ICONEXCLAMATION \
+                        "/AddToPath=1 is disabled and ignored in 'All Users' installations" /SD IDOK
+                    ${Print} "/AddToPath=1 is disabled and ignored in 'All Users' installations"
+                    StrCpy $INIT_CONDA 0
+                ${Else}
+                    StrCpy $INIT_CONDA 1
+                ${EndIf}
+            ${ElseIf} $ARGV_AddToPath = "0"
+                StrCpy $INIT_CONDA 0
+            ${EndIf}
+        ${Else}
+            # If we have Errors, the option is not explicitly set by the user
+            StrCpy $INIT_CONDA 0
+        ${EndIf}
+    !endif
 
     ClearErrors
     ${GetOptions} $ARGV "/KeepPkgCache=" $ARGV_KeepPkgCache
@@ -389,31 +463,6 @@ FunctionEnd
     ${EndIf}
 
 !macroend
-
-Function OnInit_Release
-    ${LogSet} on
-    !insertmacro ParseCommandLineArgs
-
-    # Parsing the AddToPath option here (and not in ParseCommandLineArgs) to prevent the MessageBox from showing twice.
-    # For more context, see https://github.com/conda/constructor/pull/584#issuecomment-1347688020
-    ClearErrors
-    ${GetOptions} $ARGV "/AddToPath=" $ARGV_AddToPath
-    ${IfNot} ${Errors}
-        ${If} $ARGV_AddToPath = "1"
-            ${If} $InstMode == ${ALL_USERS}
-                # To address CVE-2022-26526.
-                # In AllUsers install mode, do not allow AddToPath as an option.
-                MessageBox MB_OK|MB_ICONEXCLAMATION "/AddToPath=1 is disabled and ignored in 'All Users' installations" /SD IDOK
-                ${Print} "/AddToPath=1 is disabled and ignored in 'All Users' installations"
-                StrCpy $Ana_AddToPath_State ${BST_UNCHECKED}
-            ${Else}
-                StrCpy $Ana_AddToPath_State ${BST_CHECKED}
-            ${EndIf}
-        ${ElseIf} $ARGV_AddToPath = "0"
-            StrCpy $Ana_AddToPath_State ${BST_UNCHECKED}
-        ${EndIf}
-    ${EndIf}
-FunctionEnd
 
 Function InstModePage_RadioButton_OnClick
     ${LogSet} on
@@ -556,6 +605,14 @@ Function .onInit
     Push $R1
     Push $R2
 
+    # 1. Initialize core options default values
+    Call mui_AnaCustomOptions_InitDefaults
+
+    # 2. Account finally for CLI to potentially override core default values
+    ${If} ${Silent}
+        !insertmacro ParseCommandLineArgs
+    ${EndIf}
+
     InitPluginsDir
 {%- if TEMP_EXTRA_FILES | length != 0 %}
     SetOutPath $PLUGINSDIR
@@ -563,7 +620,6 @@ Function .onInit
     File "{{ file }}"
 {%- endfor %}
 {%- endif %}
-    !insertmacro ParseCommandLineArgs
 
     # Select the correct registry to look at, depending
     # on whether it's a 32-bit or 64-bit installer
@@ -700,31 +756,10 @@ Function .onInit
         StrCpy $CheckPathLength "1"
     ${EndIf}
 
-    # Initialize the default settings for the anaconda custom options
-    Call mui_AnaCustomOptions_InitDefaults
-    # Override custom options with explicitly given values from construct.yaml.
-    # If initialize_by_default / register_python_default
-    # are None, do nothing. Note that these variables exist even when the construct.yaml
-    # settings are disabled, and the installer will respect them later!
-{%- if initialize_conda %}
-    {%- if initialize_by_default %}
-    ${If} $InstMode == ${JUST_ME}
-        StrCpy $Ana_AddToPath_State ${BST_CHECKED}
-    ${EndIf}
-    {%- else %}
-    StrCpy $Ana_AddToPath_State ${BST_UNCHECKED}
-    {%- endif %}
-{%- endif %}
-
-{%- if register_python %}
-    StrCpy $Ana_RegisterSystemPython_State {{ '${BST_CHECKED}' if register_python_default else '${BST_UNCHECKED}' }}
-{%- endif %}
     StrCpy $CheckPathLength "{{ 1 if check_path_length else 0 }}"
     StrCpy $Ana_ClearPkgCache_State {{ '${BST_UNCHECKED}' if keep_pkgs else '${BST_CHECKED}' }}
     StrCpy $Ana_PreInstall_State {{ '${BST_CHECKED}' if pre_install_exists else '${BST_UNCHECKED}' }}
     StrCpy $Ana_PostInstall_State {{ '${BST_CHECKED}' if post_install_exists else '${BST_UNCHECKED}' }}
-
-    Call OnInit_Release
 
     ${Print} "Welcome to ${NAME} ${VERSION}$\n"
 
@@ -1120,6 +1155,7 @@ Function OnDirectoryLeave
       UnicodePathTest::UnicodePathTest $INSTDIR
       Pop $R1
 
+{%- if has_python %}
       # Python 3 can be installed in a CP_ACP path until MKL is Unicode capable.
       # (mkl_rt.dll calls LoadLibraryA() to load mkl_intel_thread.dll)
       # Python 2 can only be installed to an ASCII path.
@@ -1137,6 +1173,7 @@ Function OnDirectoryLeave
           abort
 
       valid_path:
+{%- endif %}
 
     Push $R1
     ${IsWritable} $INSTDIR $R1
@@ -1219,6 +1256,122 @@ FunctionEnd
 !insertmacro AbortRetryNSExecWaitMacro ""
 !insertmacro AbortRetryNSExecWaitMacro "un."
 
+{%- set pathname = "$INSTDIR\\condabin" if initialize_conda == "condabin" else "$INSTDIR\\Scripts & Library\\bin" %}
+!macro AddRemovePath add_remove un
+{# python.exe is required if conda-standalone does not support the windows subcommand (<25.11.x) #}
+{%- if needs_python_exe %}
+    ${If} ${add_remove} == "add"
+{%-     if initialize_conda == 'condabin' %}
+        ${Print} "Adding {{ pathname }} PATH..."
+        StrCpy $R0 "addcondabinpath"
+{%-     else %}
+        ${Print} "Adding {{ pathname }} to PATH..."
+        StrCpy $R0 "addpath ${PYVERSION} ${NAME} ${VERSION} ${ARCH}"
+{%- endif %}
+        StrCpy $R1 "Failed to add {{ NAME }} to PATH"
+    ${Else}
+        ${Print} "Running rmpath script..."
+        StrCpy $R0 "rmpath"
+        StrCpy $R1 "Failed to remove {{ NAME }} from PATH"
+    ${EndIf}
+    ${If} ${Silent}
+        push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" $R0'
+    ${Else}
+        push '"$INSTDIR\python.exe" -E -s "$INSTDIR\Lib\_nsis.py" $R0'
+    ${EndIf}
+    push $R1
+    push 'WithLog'
+    call ${un}AbortRetryNSExecWait
+{%- else %}
+{%- set pathflag = "--condabin" if initialize_conda == "condabin" else "--classic" %}
+    ${If} ${add_remove} == "add"
+        ${Print} "Adding {{ pathname }} to PATH..."
+        StrCpy $R0 "prepend"
+        StrCpy $R1 'Failed to add {{ NAME }} to PATH'
+    ${Else}
+        ${Print} "Removing {{ pathname }} from PATH..."
+        StrCpy $R0 "remove"
+        StrCpy $R1 'Failed to remove {{ NAME }} from PATH'
+    ${EndIf}
+    push '"$INSTDIR\_conda.exe" constructor windows path --$R0=user --prefix "$INSTDIR" {{ pathflag }}'
+    push $R1
+    push 'WithLog'
+    call ${un}AbortRetryNSExecWait
+{%- endif %}
+!macroend
+
+!macro setInstdirPermissions
+    # To address CVE-2022-26526.
+    # Revoke the write permission on directory "$INSTDIR" for Users. Users are:
+    #   AU - authenticated users (NT AUTHORITY\Authenticated Users)
+    #   BU - built-in (local) users (BUILTIN\Users)
+    #   DU - domain users  (<domain name>\DOMAIN USERS)
+    # This also applies for single-user installations to avoid giving other users
+    # full access on shared drives.
+    ${If} ${UAC_IsAdmin}
+        StrCpy $0 "(AU) (BU) (DU)"
+    ${Else}
+        # Not every directory grants write access to Users (e.g., %USERPROFILE%),
+        # so test whether user groups have the necessary rights.
+        nsExec::ExecToStack '"$ICACLS_EXE" "$INSTDIR"'
+        Pop $R0
+        Pop $R1
+        ${If} $R0 != "0"
+          StrCpy $R1 \
+              "Unable to determine the defaults permissions of the installation directory. "\
+              "Ensure that you have read access to $INSTDIR and icacls.exe is in your PATH."
+          ${Print} $R1
+          Abort
+        ${EndIf}
+        StrCpy $0 ""
+        StrCpy $R2 "NT AUTHORITY\Authenticated Users|BUILTIN\Users|\Domain Users"
+        StrCpy $R3 "(AU)|(BU)|(DU)"
+        StrCpy $R4 1
+        loop_single_user_default_access:
+            ${WordFind} $R2 "|" "E+$R4" $R5
+            ${WordFind} $R3 "|" "E+$R4" $R6
+            IfErrors endloop_single_user_default_access
+            ${StrStr} $R7 $R1 $R5
+            ${If} $R7 == ""
+                goto increment_loop_single_user_default_access
+            ${EndIf}
+            # If the user group has a deny permission directive, do not change permissions.
+            # Granting (RX) permissions may increase the permissions that are inherited and
+            # it is very unlikely that a user is granted write permissions but denied others.
+            ${StrStr} $R7 $R1 "$R5:(D)"
+            ${If} $R7 != ""
+                goto increment_loop_single_user_default_access
+            ${EndIf}
+            StrCpy $0 "$0 $R6"
+            increment_loop_single_user_default_access:
+            IntOp $R4 $R4 + 1
+            goto loop_single_user_default_access
+        endloop_single_user_default_access:
+    ${EndIf}
+    AccessControl::DisableFileInheritance "$INSTDIR"
+    ${If} $0 != ""
+        StrCpy $1 1
+        loop_access:
+            ${WordFind} $0 " " "E+$1" $2
+            IfErrors endloop_access
+            AccessControl::RevokeOnFile "$INSTDIR" "$2" "GenericWrite"
+            AccessControl::SetOnFile "$INSTDIR" "$2" "GenericRead + GenericExecute"
+            IntOp $1 $1 + 1
+            goto loop_access
+        endloop_access:
+    ${EndIf}
+    ${IfNot} ${UAC_IsAdmin}
+        # Ensure that creator has full access
+        ReadEnvStr $R0 USERDOMAIN
+        ReadEnvStr $R1 USERNAME
+        ${If} $R0 == ""
+          AccessControl::SetOnFile "$INSTDIR" "$R1" "FullAccess"
+        ${Else}
+          AccessControl::SetOnFile "$INSTDIR" "$R0\$R1" "FullAccess"
+        ${EndIf}
+    ${EndIf}
+!macroend
+
 # Installer sections
 Section "Install"
     ${LogSet} on
@@ -1226,9 +1379,9 @@ Section "Install"
         call OnDirectoryLeave
     ${EndIf}
 
-    SetOutPath "$INSTDIR\Lib"
-    File "{{ NSIS_DIR }}\_nsis.py"
-    File "{{ NSIS_DIR }}\_system_path.py"
+    !insertmacro FindWindowsBinaries
+
+    SetOutPath "$INSTDIR"
 
     # Resolve INSTDIR so that paths and registry keys do not contain '..' or similar strings.
     # $0 is empty if the directory doesn't exist, but the File commands should have created it already.
@@ -1238,6 +1391,17 @@ Section "Install"
 	Quit
     ${EndIf}
     StrCpy $INSTDIR $0
+
+    # Restrict permissions immediately after creating $INSTDIR
+    # If not, the installation directory may inherit write-permissions
+    # for users even during an all-users installation.
+    !insertmacro setInstdirPermissions
+
+{% if needs_python_exe %}
+    SetOutPath "$INSTDIR\Lib"
+    File "{{ NSIS_DIR }}\_nsis.py"
+    File "{{ NSIS_DIR }}\_system_path.py"
+{% endif %}
 
 {%- if has_license %}
     SetOutPath "$INSTDIR"
@@ -1296,11 +1460,12 @@ Section "Install"
 {%- endfor %}
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_SAFETY_CHECKS", "disabled").r0'
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_EXTRA_SAFETY_CHECKS", "no").r0'
-    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_ROOT_PREFIX", "$INSTDIR")".r0'
-    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_PKGS_DIRS", "$INSTDIR\pkgs")".r0'
+    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_ROOT_PREFIX", "$INSTDIR").r0'
+    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_PKGS_DIRS", "$INSTDIR\pkgs").r0'
+    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_PROTECT_FROZEN_ENVS", "0").r0'
     # Spinners in conda write a new character with each movement of the spinner.
     # For long installation times, this may cause a buffer overflow, crashing the installer.
-    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_QUIET", "1")".r0'
+    System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_QUIET", "1").r0'
     # Extra info for pre and post install scripts
     # NOTE: If more vars are added, make sure to update the examples/scripts tests too
     #       There's a similar block for the pre_uninstall script, further down this file.
@@ -1352,17 +1517,7 @@ Section "Install"
 
     IfFileExists "$INSTDIR\pkgs\pre_install.bat" 0 NoPreInstall
         ${Print} "Running pre_install scripts..."
-        ReadEnvStr $5 SystemRoot
-        ReadEnvStr $6 windir
-        # This 'FileExists' also returns True for directories
-        ${If} ${FileExists} "$5"
-            push '"$5\System32\cmd.exe" /D /C "$INSTDIR\pkgs\pre_install.bat"'
-        ${ElseIf} ${FileExists} "$6"
-            push '"$6\System32\cmd.exe" /D /C "$INSTDIR\pkgs\pre_install.bat"'
-        ${Else}
-            # Cross our fingers CMD is in PATH
-            push 'cmd.exe /D /C "$INSTDIR\pkgs\pre_install.bat"'
-        ${EndIf}
+        push '"$CMD_EXE" /D /C "$INSTDIR\pkgs\pre_install.bat"'
         push "Failed to run pre_install"
         push 'WithLog'
         call AbortRetryNSExecWait
@@ -1375,13 +1530,12 @@ Section "Install"
     ${Print} "Setting up the {{ env.name }} environment..."
     SetDetailsPrint listonly
 
-    # List of packages to install
-    SetOutPath "{{ env.env_txt_dir }}"
-    File "{{ env.env_txt_abspath }}"
 
     # A conda-meta\history file is required for a valid conda prefix
     SetOutPath "{{ env.conda_meta }}"
     File "{{ env.history_abspath }}"
+    # List of packages to install, as a lockfile
+    File "{{ env.lockfile_txt_abspath }}"
 
     # Set channels
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_CHANNELS", "{{ channels }}").r0'
@@ -1391,20 +1545,16 @@ Section "Install"
     # Run conda install
     ${If} $Ana_CreateShortcuts_State = ${BST_CHECKED}
         ${Print} "Installing packages for {{ env.name }}, creating shortcuts if necessary..."
-        push '"$INSTDIR\_conda.exe" install --offline -yp "{{ env.prefix }}" --file "{{ env.env_txt }}" {{ env.shortcuts }} {{ env.no_rcs_arg }}'
+        push '"$INSTDIR\_conda.exe" install --offline -yp "{{ env.prefix }}" --file "{{ env.lockfile_txt }}" {{ env.shortcuts }} {{ env.no_rcs_arg }}'
     ${Else}
         ${Print} "Installing packages for {{ env.name }}..."
-        push '"$INSTDIR\_conda.exe" install --offline -yp "{{ env.prefix }}" --file "{{ env.env_txt }}" --no-shortcuts {{ env.no_rcs_arg }}'
+        push '"$INSTDIR\_conda.exe" install --offline -yp "{{ env.prefix }}" --file "{{ env.lockfile_txt }}" --no-shortcuts {{ env.no_rcs_arg }}'
     ${EndIf}
     push 'Failed to link extracted packages to {{ env.prefix }}!'
     push 'WithLog'
     SetDetailsPrint listonly
     call AbortRetryNSExecWait
     SetDetailsPrint both
-
-    # Cleanup {{ env.name }} env.txt
-    SetOutPath "$INSTDIR"
-    Delete "{{ env.env_txt }}"
 
     # Restore shipped conda-meta\history for remapped
     # channels and retain only the first transaction
@@ -1419,19 +1569,20 @@ Section "Install"
     AddSize {{ SIZE }}
 
 {%- if has_conda %}
-    ${Print} "Initializing conda directories..."
-    push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" mkdirs'
-    push 'Failed to initialize conda directories'
-    push 'WithLog'
-    call AbortRetryNSExecWait
+    StrCpy $R0 "$INSTDIR\envs"
+    ${IfNot} ${FileExists} "$R0"
+        CreateDirectory "$R0"
+    ${EndIf}
 {%- endif %}
 
-    ${If} $Ana_PostInstall_State = ${BST_CHECKED}
-        ${Print} "Running post install..."
-        push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" post_install'
-        push 'Failed to run post install script'
-        push 'WithLog'
-        call AbortRetryNSExecWait
+    ${If} ${FileExists} "$INSTDIR\pkgs\post_install.bat"
+        ${If} $Ana_PostInstall_State = ${BST_CHECKED}
+            ${Print} "Running post install..."
+            push '"$CMD_EXE" /D /C "$INSTDIR\pkgs\post_install.bat"'
+            push "Failed to run post_install"
+            push 'WithLog'
+            call AbortRetryNSExecWait
+        ${EndIf}
     ${EndIf}
 
     ${If} $Ana_ClearPkgCache_State = ${BST_CHECKED}
@@ -1442,25 +1593,19 @@ Section "Install"
         call AbortRetryNSExecWait
     ${EndIf}
 
-{% if initialize_conda %}
-    ${If} $Ana_AddToPath_State = ${BST_CHECKED}
-{%-     if initialize_conda == 'condabin' %}
-        ${Print} "Adding $INSTDIR\condabin to PATH..."
-        push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" addcondabinpath'
-{%-     else %}
-        ${Print} "Adding $INSTDIR\Scripts & Library\bin to PATH..."
-        push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" addpath ${PYVERSION} ${NAME} ${VERSION} ${ARCH}'
-{%-     endif %}
-        push 'Failed to add {{ NAME }} to PATH'
-        push 'WithLog'
-        call AbortRetryNSExecWait
-    ${EndIf}
-{%- endif %}
+    !if ${INIT_CONDA_OPTION} == 1
+        ${If} ${FileExists} "$INSTDIR\.nonadmin"
+            ${If} $INIT_CONDA = 1
+                !insertmacro AddRemovePath "add" ""
+            ${EndIf}
+        ${EndIf}
+    !endif
 
+{%- if has_python %}
     # Create registry entries saying this is the system Python
     # (for this version)
     !define PYREG "Software\Python\PythonCore\${PY_VER}"
-    ${If} $Ana_RegisterSystemPython_State == ${BST_CHECKED}
+    ${If} $REG_PY == 1
         WriteRegStr SHCTX "${PYREG}\Help\Main Python Documentation" \
             "Main Python Documentation" \
             "$INSTDIR\Doc\python${PYVERSION_JUSTDIGITS}.chm"
@@ -1474,6 +1619,7 @@ Section "Install"
         WriteRegStr SHCTX "${PYREG}\PythonPath" \
             "" "$INSTDIR\Lib;$INSTDIR\DLLs"
     ${EndIf}
+{%- endif %}
 
     ${If} $ARGV_NoRegistry == "0"
         # Delete registry entries for environment variables set by PothosSDR
@@ -1513,60 +1659,24 @@ Section "Install"
 
     WriteUninstaller "$INSTDIR\Uninstall-${NAME}.exe"
 
-    # To address CVE-2022-26526.
-    # Revoke the write permission on directory "$INSTDIR" for Users if this is
-    # being run with administrative privileges. Users are:
-    #   AU - authenticated users
-    #   BU - built-in (local) users
-    #   DU - domain users
-    ${If} ${UAC_IsAdmin}
-        ${Print} "Setting installation directory permissions..."
-        AccessControl::DisableFileInheritance "$INSTDIR"
-        # Enable inheritance on all files inside $INSTDIR.
-        # Use icacls because it is much faster than custom NSIS solutions.
-        # We continue on error because icacls fails on broken links.
-        ReadEnvStr $0 SystemRoot
-        ReadEnvStr $1 windir
-        ${If} ${FileExists} "$0"
-            push '"$0\System32\icacls.exe" "$INSTDIR\*" /inheritance:e /T /C /Q'
-        ${ElseIf} ${FileExists} "$1"
-            push '"$1\System32\icacls.exe" "$INSTDIR\*" /inheritance:e /T /C /Q'
-        ${Else}
-            # Cross our fingers icacls is in PATH
-            push 'icacls.exe "$INSTDIR\*" /inheritance:e /T /C /Q'
-        ${EndIf}
-        push 'Failed to enable inheritance for all files in the installation directory.'
-        push 'NoLog'
-        call AbortRetryNSExecWait
-        AccessControl::RevokeOnFile "$INSTDIR" "(AU)" "GenericWrite"
-        AccessControl::RevokeOnFile "$INSTDIR" "(DU)" "GenericWrite"
-        AccessControl::RevokeOnFile "$INSTDIR" "(BU)" "GenericWrite"
-        AccessControl::SetOnFile "$INSTDIR" "(BU)" "GenericRead + GenericExecute"
-        AccessControl::SetOnFile "$INSTDIR" "(DU)" "GenericRead + GenericExecute"
-    ${EndIf}
+    ${Print} "Setting installation directory permissions..."
+    # Enable inheritance on all files inside $INSTDIR.
+    # Use icacls because it is much faster than custom NSIS solutions.
+    # We continue on error because icacls fails on broken links.
+    push '"$ICACLS_EXE" "$INSTDIR\*" /inheritance:e /T /C /Q'
+    push 'Failed to enable inheritance for all files in the installation directory.'
+    push 'NoLog'
+    call AbortRetryNSExecWait
     ${Print} "Done!"
 SectionEnd
-
-!macro AbortRetryNSExecWaitLibNsisCmd cmd
-    SetDetailsPrint both
-    ${Print} "Running ${cmd} scripts..."
-    SetDetailsPrint listonly
-    ${If} ${Silent}
-        push '"$INSTDIR\pythonw.exe" -E -s "$INSTDIR\Lib\_nsis.py" ${cmd}'
-    ${Else}
-        push '"$INSTDIR\python.exe" -E -s "$INSTDIR\Lib\_nsis.py" ${cmd}'
-    ${EndIf}
-    push "Failed to run ${cmd}"
-    push 'WithLog'
-    call un.AbortRetryNSExecWait
-    SetDetailsPrint both
-!macroend
 
 Section "Uninstall"
     ${LogSet} on
     ${If} ${Silent}
         !insertmacro un.ParseCommandLineArgs
     ${EndIf}
+
+    !insertmacro FindWindowsBinaries
 
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("CONDA_ROOT_PREFIX", "$INSTDIR")".r0'
 
@@ -1611,7 +1721,7 @@ Section "Uninstall"
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("INSTALLER_NAME", "${NAME}").r0'
     StrCpy $0 ${VERSION}
     ${If} $INSTALLER_VERSION != ""
-	StrCpy $0 $INSTALLER_VERSION
+      StrCpy $0 $INSTALLER_VERSION
     ${EndIf}
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("INSTALLER_VER", "$0").r0'
     System::Call 'kernel32::SetEnvironmentVariable(t,t)i("INSTALLER_PLAT", "${PLATFORM}").r0'
@@ -1622,11 +1732,18 @@ Section "Uninstall"
         System::Call 'kernel32::SetEnvironmentVariable(t,t)i("INSTALLER_UNATTENDED", "0").r0'
     ${EndIf}
 
-{%- if uninstall_with_conda_exe %}
-    !insertmacro AbortRetryNSExecWaitLibNsisCmd "pre_uninstall"
-    !insertmacro AbortRetryNSExecWaitLibNsisCmd "rmpath"
-    !insertmacro AbortRetryNSExecWaitLibNsisCmd "rmreg"
+    ${If} ${FileExists} "$INSTDIR\pkgs\pre_uninstall.bat"
+        ${Print} "Running pre_uninstall scripts..."
+        push '"$CMD_EXE" /D /C "$INSTDIR\pkgs\pre_uninstall.bat"'
+        push "Failed to run pre_uninstall"
+        push 'WithLog'
+        call un.AbortRetryNSExecWait
+    ${EndIf}
+    ${If} ${FileExists} "$INSTDIR\.nonadmin"
+        !insertmacro AddRemovePath "remove" "un."
+    ${EndIf}
 
+{%- if uninstall_with_conda_exe %}
     # Parse arguments
     StrCpy $R0 ""
 
@@ -1673,9 +1790,21 @@ Section "Uninstall"
     call un.AbortRetryNSExecWait
     SetDetailsPrint both
 {%- endfor %}
-    !insertmacro AbortRetryNSExecWaitLibNsisCmd "pre_uninstall"
-    !insertmacro AbortRetryNSExecWaitLibNsisCmd "rmpath"
-    !insertmacro AbortRetryNSExecWaitLibNsisCmd "rmreg"
+{%- if has_conda %}
+    ${If} ${FileExists} "$INSTDIR\.nonadmin"
+        StrCpy $R0 "user"
+    ${Else}
+        StrCpy $R0 "system"
+    ${EndIf}
+    # When running conda.bat directly, there is a non-fatal error
+    # that DOSKEY (called by conda_hook.bat) is not a valid command.
+    # While the operation still succeeds, this error is confusing.
+    # Calling via cmd.exe fixes that.
+    push '"$CMD_EXE" /D /C "$INSTDIR\condabin\conda.bat" init cmd.exe --reverse --$R0'
+    push 'Failed to clean AutoRun'
+    push 'WithLog'
+    call un.AbortRetryNSExecWait
+{%- endif %}
 
     ${Print} "Removing files and folders..."
     nsExec::Exec 'cmd.exe /D /C RMDIR /Q /S "$INSTDIR"'
