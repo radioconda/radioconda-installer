@@ -171,13 +171,15 @@ def render_constructors(
             channels=platform_env_dict["channels"],
             specs=sorted(platform_env_dict["dependencies"]),
             user_requested_specs=user_requested_specs,
-            initialize_by_default=False if platform.startswith("win") else True,
+            initialize_by_default=True,
             installer_type="all",
-            keep_pkgs=True,
+            keep_pkgs=False if platform.startswith("win") else True,
             license_file="LICENSE",
+            register_python=False,
             register_python_default=False,
             write_condarc=True,
             condarc=dict(
+                auto_activate=False,
                 channels=platform_env_dict["channels"],
                 channel_priority="strict",
             ),
@@ -206,6 +208,7 @@ def render_constructors(
                 welcome_image.save(constructor_dir / "welcome.png")
                 construct_dict["welcome_image"] = "welcome.png"
         if platform.startswith("win"):
+            construct_dict["initialize_conda"] = "condabin"
             construct_dict["post_install"] = "post_install.bat"
             # point to template that we generate at build time with a patch over default
             construct_dict["nsis_template"] = "main.nsi.tmpl"
