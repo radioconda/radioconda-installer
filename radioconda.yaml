@@ -54,6 +54,7 @@ dependencies:
   - libiio
   - libm2k
   - limesuite
+  - liquid-dsp
   - matplotlib
   - mirisdr
   - m17-cxx-demod
