@@ -44,7 +44,7 @@ Once installed, you will have a fully functional conda distribution/environment,
 
 ## Download
 
-Radioconda installers are available here: https://github.com/radioconda/radioconda-installer/releases.
+Installers are available here: https://github.com/radioconda/radioconda-installer/releases.
 
 | OS      | Architecture          | Installer Type | Download                                                                                                             |
 | ------- | --------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------- |
